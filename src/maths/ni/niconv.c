@@ -26,6 +26,10 @@ NIconvTest(CKTcircuit *ckt)
     double old;
     double new;
     double tol;
+    
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
 
     node = ckt->CKTnodes;
     size = SMPmatSize(ckt->CKTmatrix);
@@ -33,7 +37,7 @@ NIconvTest(CKTcircuit *ckt)
     for (i=1;i<=size;i++) {
         new =  ckt->CKTrhs [i] ;
         old =  ckt->CKTrhsOld [i] ;
-	printf("chk for convergence:   %s    new: %g    old: %g\n",CKTnodName(ckt,i),new,old);
+	SPICE_debug(("chk for convergence:   %s    new: %g    old: %g\n",CKTnodName(ckt,i),new,old));
     }
 #endif /* STEPDEBUG */
     for (i=1;i<=size;i++) {

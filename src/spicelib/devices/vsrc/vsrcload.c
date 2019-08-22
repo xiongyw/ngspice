@@ -33,6 +33,10 @@ VSRCload(GENmodel *inModel, CKTcircuit *ckt)
     double time;
     double value = 0.0;
 
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
+
     /*  loop through all the source models */
     for( ; model != NULL; model = VSRCnextModel(model)) {
 

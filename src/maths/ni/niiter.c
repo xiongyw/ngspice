@@ -31,6 +31,10 @@ NIiter(CKTcircuit *ckt, int maxIter)
     int iterno = 0;
     int ipass = 0;
 
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...ckt->CTKmode=0x%08x\n", (uint32_t)(ckt->CKTmode)));
+#endif
+
     /* some convergence issues that get resolved by increasing max iter */
     if (maxIter < 100)
         maxIter = 100;
@@ -55,7 +59,7 @@ NIiter(CKTcircuit *ckt, int maxIter)
         error = NIreinit(ckt);
         if (error) {
 #ifdef STEPDEBUG
-            printf("re-init returned error \n");
+            SPICE_debug(("re-init returned error \n"));
 #endif
             return(error);
         }
@@ -72,28 +76,31 @@ NIiter(CKTcircuit *ckt, int maxIter)
 #endif
         {
 
+#ifdef STEPDEBUG
+            SPICE_debug(("#################### iterno=%d: noncon=%d, CKTmode=0x%08x\n", iterno, ckt->CKTnoncon, (uint32_t)(ckt->CKTmode)));
+#endif
             error = CKTload(ckt);
-            /* printf("loaded, noncon is %d\n", ckt->CKTnoncon); */
-            /* fflush(stdout); */
             iterno++;
             if (error) {
                 ckt->CKTstat->STATnumIter += iterno;
 #ifdef STEPDEBUG
-                printf("load returned error \n");
+                SPICE_debug(("load returned error \n"));
 #endif
                 FREE(OldCKTstate0);
                 return (error);
             }
 
-            /* printf("after loading, before solving\n"); */
-            /* CKTdump(ckt); */
+#ifdef STEPDEBUG
+            //SPICE_debug(("after loading, before solving\n"));
+            //CKTdump(ckt, 0.0, NULL);
+#endif
 
             if (!(ckt->CKTniState & NIDIDPREORDER)) {
                 error = SMPpreOrder(ckt->CKTmatrix);
                 if (error) {
                     ckt->CKTstat->STATnumIter += iterno;
 #ifdef STEPDEBUG
-                    printf("pre-order returned error \n");
+                    SPICE_debug(("pre-order returned error \n"));
 #endif
                     FREE(OldCKTstate0);
                     return(error); /* badly formed matrix */
@@ -121,7 +128,7 @@ NIiter(CKTcircuit *ckt, int maxIter)
                     SPfrontEnd->IFerrorf (ERR_WARNING, "singular matrix:  check nodes %s and %s\n", NODENAME(ckt, i), NODENAME(ckt, j));
                     ckt->CKTstat->STATnumIter += iterno;
 #ifdef STEPDEBUG
-                    printf("reorder returned error \n");
+                    SPICE_debug(("reorder returned error \n"));
 #endif
                     FREE(OldCKTstate0);
                     return(error); /* can't handle these errors - pass up! */
@@ -144,7 +151,7 @@ NIiter(CKTcircuit *ckt, int maxIter)
                     /* seems to be singular - pass the bad news up */
                     ckt->CKTstat->STATnumIter += iterno;
 #ifdef STEPDEBUG
-                    printf("lufac returned error \n");
+                    SPICE_debug(("lufac returned error \n"));
 #endif
                     FREE(OldCKTstate0);
                     return(error);
@@ -165,11 +172,11 @@ NIiter(CKTcircuit *ckt, int maxIter)
 #ifdef STEPDEBUG
             /*XXXX*/
             if (ckt->CKTrhs[0] != 0.0)
-                printf("NIiter: CKTrhs[0] = %g\n", ckt->CKTrhs[0]);
+                SPICE_debug(("NIiter: CKTrhs[0] = %g\n", ckt->CKTrhs[0]));
             if (ckt->CKTrhsSpare[0] != 0.0)
-                printf("NIiter: CKTrhsSpare[0] = %g\n", ckt->CKTrhsSpare[0]);
+                SPICE_debug(("NIiter: CKTrhsSpare[0] = %g\n", ckt->CKTrhsSpare[0]));
             if (ckt->CKTrhsOld[0] != 0.0)
-                printf("NIiter: CKTrhsOld[0] = %g\n", ckt->CKTrhsOld[0]);
+                SPICE_debug(("NIiter: CKTrhsOld[0] = %g\n", ckt->CKTrhsOld[0]));
             /*XXXX*/
 #endif
             ckt->CKTrhs[0] = 0;
@@ -197,14 +204,18 @@ NIiter(CKTcircuit *ckt, int maxIter)
                 ckt->CKTnoncon = 1;
 
 #ifdef STEPDEBUG
-            printf("noncon is %d\n", ckt->CKTnoncon);
+            SPICE_debug(("noncon is %d\n", ckt->CKTnoncon));
 #endif
-        }
+        } /* if (!(ckt->CKTmode & MODEINITPRED)) */
 
         if ((ckt->CKTnodeDamping != 0) && (ckt->CKTnoncon != 0) &&
             ((ckt->CKTmode & MODETRANOP) || (ckt->CKTmode & MODEDCOP)) &&
-            (iterno > 1))
-        {
+            (iterno > 1)) {
+
+#ifdef STEPDEBUG
+            SPICE_debug(("enter some if() block.\n"));
+#endif
+
             CKTnode *node;
             double diff, maxdiff = 0;
             for (node = ckt->CKTnodes->next; node; node = node->next)
@@ -231,22 +242,40 @@ NIiter(CKTcircuit *ckt, int maxIter)
         }
 
         if (ckt->CKTmode & MODEINITFLOAT) {
+#ifdef STEPDEBUG
+            SPICE_debug(("enter if (ckt->CKTmode & MODEINITFLOAT): noncon=%d\n", ckt->CKTnoncon));
+#endif
             if ((ckt->CKTmode & MODEDC) && ckt->CKThadNodeset) {
-                if (ipass)
+#ifdef STEPDEBUG
+                SPICE_debug(("enter if if ((ckt->CKTmode & MODEDC) && ckt->CKThadNodeset)\n"));
+#endif
+                
+                if (ipass) {
+#ifdef STEPDEBUG
+                    SPICE_debug(("enter if if (ipass): ipass=%d\n", ipass));
+#endif
                     ckt->CKTnoncon = ipass;
+                }
                 ipass = 0;
             }
             if (ckt->CKTnoncon == 0) {
                 ckt->CKTstat->STATnumIter += iterno;
                 FREE(OldCKTstate0);
+#ifdef STEPDEBUG
+                SPICE_debug(("return OK!!!!!!!!!!!!!!!!!!!\n"));
+#endif
                 return(OK);
             }
+            
         } else if (ckt->CKTmode & MODEINITJCT) {
             ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFIX;
             ckt->CKTniState |= NISHOULDREORDER;
         } else if (ckt->CKTmode & MODEINITFIX) {
             if (ckt->CKTnoncon == 0)
                 ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFLOAT;
+#ifdef STEPDEBUG
+            SPICE_debug(("ipass=1\n"));
+#endif
             ipass = 1;
         } else if (ckt->CKTmode & MODEINITSMSIG) {
             ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFLOAT;
@@ -259,7 +288,7 @@ NIiter(CKTcircuit *ckt, int maxIter)
         } else {
             ckt->CKTstat->STATnumIter += iterno;
 #ifdef STEPDEBUG
-            printf("bad initf state \n");
+            SPICE_debug(("bad initf state \n"));
 #endif
             FREE(OldCKTstate0);
             return(E_INTERN);
@@ -267,9 +296,14 @@ NIiter(CKTcircuit *ckt, int maxIter)
         }
 
         /* build up the lvnim1 array from the lvn array */
+#ifdef STEPDEBUG
+        SPICE_debug(("swapping CKTrhs and CKTrhsOld...\n"));
+#endif
         SWAP(double *, ckt->CKTrhs, ckt->CKTrhsOld);
-        /* printf("after loading, after solving\n"); */
-        /* CKTdump(ckt); */
-    }
+#ifdef STEPDEBUG
+        //SPICE_debug(("after loading, after solving\n"));
+        //CKTdump(ckt, 0.0, NULL);
+#endif
+    } /* end for(;;) */
     /*NOTREACHED*/
 }

@@ -36,6 +36,7 @@ CKTload(CKTcircuit *ckt)
     CKTnode *node;
     int error;
 #ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
     int noncon;
 #endif /* STEPDEBUG */
 
@@ -61,13 +62,16 @@ CKTload(CKTcircuit *ckt)
 
     for (i = 0; i < DEVmaxnum; i++) {
         if (DEVices[i] && DEVices[i]->DEVload && ckt->CKThead[i]) {
+#ifdef STEPDEBUG
+            SPICE_debug(("i=%d: device type=%s\n", i, DEVices[i]->DEVpublic.name));
+#endif
             error = DEVices[i]->DEVload (ckt->CKThead[i], ckt);
             if (ckt->CKTnoncon)
                 ckt->CKTtroubleNode = 0;
 #ifdef STEPDEBUG
             if (noncon != ckt->CKTnoncon) {
-                printf("device type %s nonconvergence\n",
-                       DEVices[i]->DEVpublic.name);
+                SPICE_debug(("device type %s nonconvergence\n",
+                       DEVices[i]->DEVpublic.name));
                 noncon = ckt->CKTnoncon;
             }
 #endif /* STEPDEBUG */
