@@ -30,6 +30,10 @@ CKTop (CKTcircuit *ckt, long int firstmode, long int continuemode,
 {
     int converged;
 
+#ifdef STEPDEBUG
+    SPICE_debug(("entering..., firstmode=0x%08x, continuemode=0x%08x, CKTnoOpIter=%d\n", (uint32_t)firstmode, (uint32_t)continuemode, ckt->CKTnoOpIter));
+#endif
+
 #ifdef HAS_PROGREP
     SetAnalyse("op", 0);
 #endif
@@ -42,9 +46,20 @@ CKTop (CKTcircuit *ckt, long int firstmode, long int continuemode,
         ckt->enh->conv_debug.last_NIiter_call =
             (ckt->CKTnumGminSteps <= 0) && (ckt->CKTnumSrcSteps <= 0);
 #endif
+
+#ifdef STEPDEBUG
+        SPICE_debug(("call NIiter()...\n"));
+#endif
         converged = NIiter (ckt, iterlim);
-        if (converged == 0)
+        if (converged == 0) {
+#ifdef STEPDEBUG
+            SPICE_debug(("... NIiter() converged!!!\n"));
+#endif
             return converged;   /* successfull */
+        }
+#ifdef STEPDEBUG
+        SPICE_debug(("... NIiter() does not converged\n"));
+#endif
     } else {
         converged = 1;          /* the 'go directly to gmin stepping' option */
     }
@@ -54,12 +69,24 @@ CKTop (CKTcircuit *ckt, long int firstmode, long int continuemode,
     /* first, check if we should try gmin stepping */
 
     if (ckt->CKTnumGminSteps >= 1) {
-        if (ckt->CKTnumGminSteps == 1)
+#ifdef STEPDEBUG
+        SPICE_debug(("ckt->CKTnumGminSteps=%d\n", ckt->CKTnumGminSteps));
+#endif
+        if (ckt->CKTnumGminSteps == 1){
             converged = dynamic_gmin(ckt, firstmode, continuemode, iterlim);
-        else
+        }
+        else {
             converged = spice3_gmin(ckt, firstmode, continuemode, iterlim);
-        if (converged == 0) /* If gmin-stepping worked... move out */
+        }
+        if (converged == 0) { /* If gmin-stepping worked... move out */
+#ifdef STEPDEBUG
+            SPICE_debug(("gmin converged!!!\n"));
+#endif
             return converged;
+        }
+#ifdef STEPDEBUG
+        SPICE_debug(("gmin NOT converged\n"));
+#endif
     }
 
     /* ... otherwise try stepping sources ...
@@ -69,10 +96,20 @@ CKTop (CKTcircuit *ckt, long int firstmode, long int continuemode,
      */
 
     if (ckt->CKTnumSrcSteps >= 1) {
-        if (ckt->CKTnumSrcSteps == 1)
+#ifdef STEPDEBUG
+        SPICE_debug(("ckt->CKTnumSrcSteps=%d\n", ckt->CKTnumSrcSteps));
+#endif
+        if (ckt->CKTnumSrcSteps == 1){
+#ifdef STEPDEBUG
+            SPICE_debug(("call gillespie_src\n"));
+#endif
             converged = gillespie_src(ckt, firstmode, continuemode, iterlim);
-        else
+        } else {
+#ifdef STEPDEBUG
+            SPICE_debug(("call spice3_src\n"));
+#endif
             converged = spice3_src(ckt, firstmode, continuemode, iterlim);
+        }
     }
 
 #ifdef XSPICE
@@ -80,6 +117,9 @@ CKTop (CKTcircuit *ckt, long int firstmode, long int continuemode,
     ckt->enh->conv_debug.last_NIiter_call = MIF_FALSE;
 #endif
 
+#ifdef STEPDEBUG
+    SPICE_debug(("about return: converged=%d\n", converged));
+#endif
     return converged;
 }
 
