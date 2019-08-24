@@ -63,12 +63,22 @@ DIOload(GENmodel *inModel, CKTcircuit *ckt)
     int SenCond=0;    /* sensitivity condition */
     double diffcharge, diffchargeSW, deplcharge, deplchargeSW, diffcap, diffcapSW, deplcap, deplcapSW;
 
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
+
     /*  loop through all the diode models */
     for( ; model != NULL; model = DIOnextModel(model)) {
+#ifdef STEPDEBUG
+        SPICE_debug(("DIOmodel: %s\n", model->gen.GENmodName));
+#endif
 
         /* loop through all the instances of the model */
         for (here = DIOinstances(model); here != NULL ;
                 here=DIOnextInstance(here)) {
+#ifdef STEPDEBUG
+            SPICE_debug(("  DIOinstances: %s %d %d\n", here->gen.GENname, here->DIOposNode, here->DIOnegNode));
+#endif
 
             /*
              *     this routine loads diodes for dc and transient analyses.

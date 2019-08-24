@@ -70,8 +70,8 @@ CKTload(CKTcircuit *ckt)
                 ckt->CKTtroubleNode = 0;
 #ifdef STEPDEBUG
             if (noncon != ckt->CKTnoncon) {
-                SPICE_debug(("device type %s nonconvergence\n",
-                       DEVices[i]->DEVpublic.name));
+                SPICE_debug(("device type %s. ckt->CKTnoncon=%d, noncon=%d\n",
+                       DEVices[i]->DEVpublic.name, ckt->CKTnoncon, noncon));
                 noncon = ckt->CKTnoncon;
             }
 #endif /* STEPDEBUG */
