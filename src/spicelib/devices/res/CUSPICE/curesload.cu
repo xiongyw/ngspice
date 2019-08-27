@@ -23,6 +23,7 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "ngspice/ngspice.h"
 #include "ngspice/config.h"
 #include "resdefs.h"
 
@@ -41,9 +42,16 @@ GENmodel *inModel, CKTcircuit *ckt
 
     cudaError_t status ;
 
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
+
     /*  loop through all the resistor models */
     for ( ; model != NULL ; model = model->RESnextModel)
     {
+#ifdef STEPDEBUG
+        SPICE_debug(("  RESmodName=%s\n", model->RESmodName));
+#endif
         /* Determining how many blocks should exist in the kernel */
         thread_x = 1 ;
         thread_y = 256 ;
@@ -56,7 +64,10 @@ GENmodel *inModel, CKTcircuit *ckt
 
         /* Kernel launch */
         status = cudaGetLastError () ; // clear error status
-
+        
+#ifdef STEPDEBUG
+        SPICE_debug(("  calling cuRESload_kernel() for model %s: block=%d, thread=(%d,%d)\n", model->RESmodName, block_x, thread_x, thread_y));
+#endif
         cuRESload_kernel <<< block_x, thread >>> (model->RESparamGPU, ckt->d_CKTrhsOld, model->n_instances,
                                                   model->d_PositionVector, ckt->d_CKTloadOutput) ;
 

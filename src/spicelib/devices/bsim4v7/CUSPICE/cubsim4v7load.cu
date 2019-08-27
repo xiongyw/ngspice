@@ -28,6 +28,7 @@
 #include "ngspice/macros.h"
 #include "ngspice/CUSPICE/cuniinteg.cuh"
 #include "bsim4v7def.h"
+#include "ngspice/ngspice.h"
 
 #ifdef _MSC_VER
 double CONSTvt0 = CONSTboltz * (27 /* deg c */ + CONSTCtoK) / CHARGE;
@@ -263,6 +264,10 @@ GENmodel *inModel, CKTcircuit *ckt
 
     cudaError_t status ;
 
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...creating 2 cuda streams...\n"));
+#endif
+
     for (i = 0 ; i < 2 ; i++)
         cudaStreamCreate (&(stream [i])) ;
 
@@ -271,6 +276,9 @@ GENmodel *inModel, CKTcircuit *ckt
     /*  loop through all the BSIM4v7 models */
     for ( ; model != NULL ; model = model->BSIM4v7nextModel)
     {
+#ifdef STEPDEBUG
+        SPICE_debug(("  BSIM4v7modName=%s\n", model->BSIM4v7modName));
+#endif
         /* Determining how many blocks should exist in the kernel */
         thread_x = 1 ;
         thread_y = 256 ;
@@ -284,6 +292,9 @@ GENmodel *inModel, CKTcircuit *ckt
         /* Kernel launch */
         status = cudaGetLastError () ; // clear error status
 
+#ifdef STEPDEBUG
+        SPICE_debug(("  calling cuBSIM4v7load_kernel() for model %s: block=%d, thread=(%d,%d), shared=0, stream id=%d\n", model->BSIM4v7modName, block_x, thread_x, thread_y, i));
+#endif
         cuBSIM4v7load_kernel <<< block_x, thread, 0, stream [i] >>>
                                                    (model->BSIM4v7paramGPU, model->d_pParam, ckt->d_CKTrhsOld,
                                                     ckt->d_CKTstate0, ckt->d_CKTstate1, ckt->d_CKTstate2,

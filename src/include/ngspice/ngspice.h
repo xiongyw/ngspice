@@ -9,8 +9,8 @@
  #define MEMWATCH */
 
 
-/* 
- * This file will eventually replace spice.h and lots of other 
+/*
+ * This file will eventually replace spice.h and lots of other
  * files in src/include
  */
 #ifndef _GNU_SOURCE
@@ -359,5 +359,13 @@ inline static int char_to_int(char c) { return (unsigned char) c; }
 
 #endif
 
+// added(bruin, 2019.08.21): SPICE_debug macro
+#define STMT(stuff) do { stuff } while (0)
+#define SPICE_debug(a) STMT(                                                  \
+    printf("[%s(%04d):%s()] ", __FILE__[0] == '/'?                            \
+        ((strrchr(__FILE__,'/')==NULL)?__FILE__:(strrchr(__FILE__,'/')+1)):   \
+        ((strrchr(__FILE__,'\\')==NULL)?__FILE__:(strrchr(__FILE__,'\\')+1)), \
+             __LINE__, __FUNCTION__);                                         \
+    printf a;)
 
 #endif

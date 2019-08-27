@@ -26,6 +26,8 @@
 #include "ngspice/config.h"
 #include "ngspice/CUSPICE/cuniinteg.cuh"
 #include "vsrcdefs.h"
+#include "ngspice/ngspice.h"
+
 
 #ifndef M_PI
 # define M_PI       3.14159265358979323846
@@ -63,7 +65,7 @@ Copyright 1991 Regents of the University of California.  All rights reserved.
 __device__
 static
 bool
-AlmostEqualUlps (double A, double B, int maxUlps)
+s_AlmostEqualUlps (double A, double B, int maxUlps)
 {
     int64_t aInt, bInt, intDiff;
 
@@ -113,10 +115,16 @@ GENmodel *inModel, CKTcircuit *ckt
     int thread_x, thread_y, block_x ;
 
     cudaError_t status ;
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
 
     /*  loop through all the inductor models */
     for ( ; model != NULL ; model = model->VSRCnextModel)
     {
+#ifdef STEPDEBUG
+        SPICE_debug(("  VSRC model name=%s\n", model->VSRCmodName));
+#endif
         /* Determining how many blocks should exist in the kernel */
         thread_x = 1 ;
         thread_y = 256 ;
@@ -130,6 +138,9 @@ GENmodel *inModel, CKTcircuit *ckt
         /* Kernel launch */
         status = cudaGetLastError () ; // clear error status
 
+#ifdef STEPDEBUG
+        SPICE_debug(("  calling cuVSRCload_kernel() for model %s: block=%d, thread=(%d,%d)\n", model->VSRCmodName, block_x, thread_x, thread_y));
+#endif
         cuVSRCload_kernel <<< block_x, thread >>> (model->VSRCparamGPU, ckt->CKTmode, ckt->CKTtime,
                                                    ckt->CKTstep, ckt->CKTfinalTime, ckt->CKTsrcFact,
                                                    model->n_instances, model->d_PositionVector,
@@ -438,7 +449,7 @@ int *d_PositionVector, double *d_CKTloadOutput, int *d_PositionVectorRHS, double
                             for (i = ii ; i < (VSRCentry.d_VSRCfunctionOrderArray [instance_ID] / 2) - 1 ; i++)
                             {
                                 itime = VSRCentry.d_VSRCcoeffsArray [instance_ID] [2 * i] ;
-                                if (AlmostEqualUlps (itime + repeat_time, time, 3))
+                                if (s_AlmostEqualUlps (itime + repeat_time, time, 3))
                                 {
                                     value = VSRCentry.d_VSRCcoeffsArray [instance_ID] [2 * i + 1] ;
                                     goto loadDone ;

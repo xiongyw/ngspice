@@ -47,6 +47,11 @@ static int ZeroNoncurRow(SMPmatrix *matrix, CKTnode *nodes, int rownum);
 int
 CKTload(CKTcircuit *ckt)
 {
+
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
+
 #ifdef USE_CUSPICE
     cusparseStatus_t cusparseStatus ;
     double alpha, beta ;
@@ -110,6 +115,10 @@ CKTload(CKTcircuit *ckt)
         if (DEVices[i] && DEVices[i]->DEVload && ckt->CKThead[i] && ckt->CKThead[i]->has_cuda) {
 #else
         if (DEVices[i] && DEVices[i]->DEVload && ckt->CKThead[i]) {
+#endif
+
+#ifdef STEPDEBUG
+            SPICE_debug(("calling DEVload() for device type `%s`\n", DEVices[i]->DEVpublic.name));
 #endif
 
             error = DEVices[i]->DEVload (ckt->CKThead[i], ckt);

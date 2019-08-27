@@ -99,6 +99,7 @@
 #include "ngspice/spmatrix.h"
 #include "spdefs.h"
 #include "ngspice/smpdefs.h"
+#include "ngspice/ngspice.h"
 
 #if defined (_MSC_VER)
 extern double scalbn(double, int);
@@ -192,6 +193,9 @@ SMPcReorder(SMPmatrix *Matrix, double PivTol, double PivRel,
 int
 SMPreorder(SMPmatrix *Matrix, double PivTol, double PivRel, double Gmin)
 {
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
     spSetReal( Matrix->SPmatrix );
     LoadGmin( Matrix, Gmin );
     return spOrderAndFactor( Matrix->SPmatrix, NULL,
@@ -230,6 +234,9 @@ SMPcSolve(SMPmatrix *Matrix, double RHS[], double iRHS[],
 void
 SMPsolve(SMPmatrix *Matrix, double RHS[], double Spare[])
 {
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
     NG_IGNORE(Spare);
 
     spSolve( Matrix->SPmatrix, RHS, RHS, NULL, NULL );

@@ -17,14 +17,24 @@ RESload(GENmodel *inModel, CKTcircuit *ckt)
 {
     RESmodel *model = (RESmodel *)inModel;
     double m;
+    
+#ifdef STEPDEBUG
+    SPICE_debug(("entering...\n"));
+#endif
 
     /*  loop through all the resistor models */
     for( ; model != NULL; model = model->RESnextModel ) {
         RESinstance *here;
+#ifdef STEPDEBUG
+        SPICE_debug(("  RESmodName=%s\n", model->RESmodName));
+#endif
 
         /* loop through all the instances of the model */
         for (here = model->RESinstances; here != NULL ;
                 here = here->RESnextInstance) {
+#ifdef STEPDEBUG
+            SPICE_debug(("RESname=%s\n", here->RESname));
+#endif
 
             here->REScurrent = (*(ckt->CKTrhsOld+here->RESposNode) -
                                 *(ckt->CKTrhsOld+here->RESnegNode)) * here->RESconduct;

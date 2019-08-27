@@ -5,8 +5,8 @@ Author: 1985 Thomas L. Quarles
 
 /*
  * NIconvTest(ckt)
- *  perform the convergence test - returns 1 if any of the 
- *  values in the old and new arrays have changed by more 
+ *  perform the convergence test - returns 1 if any of the
+ *  values in the old and new arrays have changed by more
  *  than absTol + relTol*(max(old,new)), otherwise returns 0
  */
 
@@ -33,7 +33,7 @@ NIconvTest(CKTcircuit *ckt)
     for (i=1;i<=size;i++) {
         new =  ckt->CKTrhs [i] ;
         old =  ckt->CKTrhsOld [i] ;
-	printf("chk for convergence:   %s    new: %g    old: %g\n",CKTnodName(ckt,i),new,old);
+	SPICE_debug(("chk for convergence:   %s    new: %g    old: %g\n",CKTnodName(ckt,i),new,old));
     }
 #endif /* STEPDEBUG */
     for (i=1;i<=size;i++) {
@@ -50,8 +50,8 @@ NIconvTest(CKTcircuit *ckt)
                     ckt->CKTvoltTol;
             if (fabs(new-old) >tol ) {
 #ifdef STEPDEBUG
-                printf(" non-convergence at node (type=3) %s (fabs(new-old)>tol --> fabs(%g-%g)>%g)\n",CKTnodName(ckt,i),new,old,tol);
-		printf("    reltol: %g    voltTol: %g   (tol=reltol*(MAX(fabs(old),fabs(new))) + voltTol)\n",ckt->CKTreltol,ckt->CKTvoltTol);
+                SPICE_debug((" non-convergence at node (type=3) %s (fabs(new-old)>tol --> fabs(%g-%g)>%g)\n",CKTnodName(ckt,i),new,old,tol));
+		SPICE_debug(("    reltol: %g    voltTol: %g   (tol=reltol*(MAX(fabs(old),fabs(new))) + voltTol)\n",ckt->CKTreltol,ckt->CKTvoltTol));
 #endif /* STEPDEBUG */
 		ckt->CKTtroubleNode = i;
 		ckt->CKTtroubleElt = NULL;
@@ -62,8 +62,8 @@ NIconvTest(CKTcircuit *ckt)
                     ckt->CKTabstol;
             if (fabs(new-old) >tol ) {
 #ifdef STEPDEBUG
-                printf(" non-convergence at node (type=%d) %s (fabs(new-old)>tol --> fabs(%g-%g)>%g)\n",node->type,CKTnodName(ckt,i),new,old,tol);
-		printf("    reltol: %g    abstol: %g   (tol=reltol*(MAX(fabs(old),fabs(new))) + abstol)\n",ckt->CKTreltol,ckt->CKTabstol);
+                SPICE_debug((" non-convergence at node (type=%d) %s (fabs(new-old)>tol --> fabs(%g-%g)>%g)\n",node->type,CKTnodName(ckt,i),new,old,tol));
+		SPICE_debug(("    reltol: %g    abstol: %g   (tol=reltol*(MAX(fabs(old),fabs(new))) + abstol)\n",ckt->CKTreltol,ckt->CKTabstol));
 #endif /* STEPDEBUG */
 		ckt->CKTtroubleNode = i;
 		ckt->CKTtroubleElt = NULL;
