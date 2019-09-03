@@ -102,9 +102,9 @@ do { if((here->ptr = SMPmakeElt(matrix, here->first, here->second)) == NULL){\
     /*  loop through all the resistor models */
     for (model = (RESmodel *)inModel ; model != NULL ; model = model->RESnextModel)
     {
-        model->offset = ckt->total_n_values ;
+        model->offset = ckt->total_n_values ; // offset for the current model
 
-        j = 0 ;
+        j = 0 ;  // total number of matrix entries to be updated by all instances of the model
 
         /* loop through all the instances of the model */
         for (here = model->RESinstances ; here != NULL ; here = here->RESnextInstance)
@@ -133,7 +133,7 @@ do { if((here->ptr = SMPmakeElt(matrix, here->first, here->second)) == NULL){\
         model->PositionVector = TMALLOC (int, model->n_instances) ;
 
         for (j = 0 ; j < model->n_instances ; j++)
-            model->PositionVector [j] = model->offset + j ;
+            model->PositionVector [j] = model->offset + j ; // one offset for each instance
     }
 
     /*  loop through all the resistor models */

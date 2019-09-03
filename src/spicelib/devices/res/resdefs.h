@@ -96,6 +96,14 @@ typedef struct sRESinstance {
 } RESinstance ;
 
 #ifdef USE_CUSPICE
+
+/* 
+ * D[] means double, I[] means integer;
+ * each pointer is an array, and each instance has a slot in the array;
+ * CPU/GPU version are identical, for copying back and forth.
+ */
+
+
 typedef struct sRESparamCPUstruct {
     double *REScpuPointersD [8] ;
     #define REStc1Array REScpuPointersD[0]

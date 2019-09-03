@@ -13,6 +13,7 @@ Mq1     drain  vin    gnd  gnd   nmos  ; d g s b model
 rdrain  vdd    drain  40k ; resistor in drain lead
 .control
 tran 1.0u 50m
-plot v(vin) v(drain) xlimit 0 50m
+*plot v(vin) v(drain) xlimit 0 50m
+quit
 .endc
 .end
