@@ -361,12 +361,15 @@ inline static int char_to_int(char c) { return (unsigned char) c; }
 
 // added(bruin, 2019.08.21): SPICE_debug macro
 #define STMT(stuff) do { stuff } while (0)
-#define SPICE_debug(a) STMT(                                                  \
-    printf("[%s(%04d):%s()] ", __FILE__[0] == '/'?                            \
-        ((strrchr(__FILE__,'/')==NULL)?__FILE__:(strrchr(__FILE__,'/')+1)):   \
-        ((strrchr(__FILE__,'\\')==NULL)?__FILE__:(strrchr(__FILE__,'\\')+1)), \
-             __LINE__, __FUNCTION__);                                         \
-    printf a;)
+extern bool g_debug;
+#define SPICE_debug(a) STMT(                                                      \
+    if (g_debug) {                                                                \
+        printf("[%s(%04d):%s()] ", __FILE__[0] == '/'?                            \
+            ((strrchr(__FILE__,'/')==NULL)?__FILE__:(strrchr(__FILE__,'/')+1)):   \
+            ((strrchr(__FILE__,'\\')==NULL)?__FILE__:(strrchr(__FILE__,'\\')+1)), \
+                 __LINE__, __FUNCTION__);                                         \
+        printf a;                                                                 \
+    })
     
 
 #endif // ngspice_NGSPICE_H
