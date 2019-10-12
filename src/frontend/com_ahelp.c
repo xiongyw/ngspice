@@ -13,6 +13,31 @@
 #include "plotting/plotting.h"
 
 
+// toggle debug flag for `SPICE_debug` macro
+
+extern bool g_debug;
+void com_debug(wordlist *wl)
+{
+    g_debug = !g_debug;  
+    if (g_debug)
+        printf("debug is ON\n");
+    else
+        printf("debug is OFF\n");
+}
+
+// toggle g_near flag
+
+extern bool g_near;
+void com_near(wordlist *wl)
+{
+    g_near = !g_near;
+    if (g_near)
+        printf("EA is ON\n");
+    else
+        printf("EA is OFF\n");
+}
+
+
 void
 com_ahelp(wordlist *wl)
 {

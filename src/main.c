@@ -74,6 +74,7 @@ extern int rl_catch_signals;        /* missing from editline/readline.h */
 #endif
 
 bool g_debug = FALSE;  // control SPICE_debug() macro
+bool g_near = FALSE; // use Evolutionary Algorithm in Newton-Raphson in NIiter()
 
 #if defined(HAVE_GNUREADLINE) || defined(HAVE_BSDEDITLINE)
 char history_file[512] = {'\0'};
@@ -668,7 +669,6 @@ show_help(void)
            "  -a  --autorun             run the loaded netlist\n"
            "  -b, --batch               process FILE in batch mode\n"
            "  -c, --circuitfile=FILE    set the circuitfile\n"
-           "  -d, --debug               print debug info\n"
            "  -i, --interactive         run in interactive mode\n"
            "  -n, --no-spiceinit        don't load the local or user's config file\n"
            "  -o, --output=FILE         set the outputfile\n"
@@ -866,7 +866,6 @@ main(int argc, char **argv)
             {"version",      no_argument,       NULL, 'v'},
             {"batch",        no_argument,       NULL, 'b'},
             {"autorun",      no_argument,       NULL, 'a'},
-            {"debug",        no_argument,       NULL, 'd'},
             {"circuitfile",  required_argument, NULL, 'c'},
             {"interactive",  no_argument,       NULL, 'i'},
             {"no-spiceinit", no_argument,       NULL, 'n'},
@@ -882,7 +881,7 @@ main(int argc, char **argv)
 
         int option_index = 0;
 
-        int c = getopt_long(argc, argv, "hvbadc:ino:pqr:st:",
+        int c = getopt_long(argc, argv, "hvbac:ino:pqr:st:",
                             long_options, &option_index);
 
         if (c == -1)
@@ -926,9 +925,6 @@ main(int argc, char **argv)
             }
             break;
             
-        case 'd':       /* debug info */
-            g_debug = TRUE;
-            break;
         
         case 'i':       /* Interactive mode */
             iflag = TRUE;

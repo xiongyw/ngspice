@@ -457,6 +457,22 @@ struct comm spcp_coms[] = {
       { 010, 010, 010, 010 }, E_DEFHMASK, 0, LOTS,
       NULL,
       "[command name] ... : help." },
+
+
+    // added(bruin, 2019.10.11)
+    { "debug", com_debug, TRUE, TRUE,
+      { 010, 010, 010, 010 }, E_DEFHMASK, 0, 0,
+      NULL,
+      "toggle debug flag." },
+      
+    // added(bruin, 2019.10.12)
+    { "near", com_near, TRUE, TRUE,
+      { 010, 010, 010, 010 }, E_DEFHMASK, 0, 0,
+      NULL,
+      "toggle evolutionary algorithm in Newton-Raphson iterations." },
+
+
+
     { "tutorial", com_ghelp, FALSE, TRUE,
       { 023010, 023010, 023010, 023010 }, E_BEGINNING, 0, LOTS,
       NULL,
