@@ -21,6 +21,7 @@ Modified: 2001 AlansFixes
 
 extern bool g_near;
 #define NUM_WORKERS   10
+int fake_near(CKTcircuit *ckt, int maxIter, int N);
 int near(CKTcircuit *ckt, int maxIter, int N);
 
 
@@ -47,7 +48,8 @@ int NIiter(CKTcircuit *ckt, int maxIter)
      * test EA for DCOP 
      */
     if (g_near && (ckt->CKTmode & MODEDCOP)) {
-        return near(ckt, maxIter, NUM_WORKERS);
+//        return near(ckt, maxIter, NUM_WORKERS);
+        return fake_near(ckt, maxIter, NUM_WORKERS);
     }
 
 
@@ -326,8 +328,111 @@ void set_rhsOld(CKTcircuit* ckt, double* x0)
     memcpy(ckt->CKTrhsOld, x0, sizeof(double) * (size + 1));
 }
 
+typedef struct {
+    double* x;
+    double* dx;
+    double dist;
+    bool is_conv;
+}worker_io; // workers' input/output
 
-/* only works for OP: Evolutionary Algorithm for Newton-Raphson iterations. */
+void deallocate_worker_io(worker_io* w, int N)
+{
+    for (int j = 0; j < N; j ++) {
+        free(w[j].x);
+        free(w[j].dx);
+    }
+    free(w);
+}
+
+
+worker_io* allocate_worker_io(int N, int matrix_size)
+{
+    int i;
+    worker_io* w = (worker_io*)malloc(sizeof(worker_io) * N);
+    if (!w) return NULL;
+    for (i = 0; i < N; i ++) {
+        w[i].x = (double*)malloc(sizeof(double) * (matrix_size + 1));
+        if (!w[i].x) {
+            deallocate_worker_io(w, i);
+            return NULL;
+        }
+        
+        w[i].dx = (double*)malloc(sizeof(double) * (matrix_size + 1));
+        if (!w[i].dx) {
+            free(w[i].x);
+            deallocate_worker_io(w, i);
+            return NULL;
+        }
+        
+        w[i].dist = 0;
+        w[i].is_conv = FALSE;
+    }
+    
+    return w;
+
+}
+
+
+
+/*
+ * for a given ckt and OP x, get x' (store in ckt->CKTrhs), and calculate dist(x, x') and noncon.
+ */
+int worker_whip(CKTcircuit* ckt, worker_io* io, bool is_1st_iter)
+{
+    // set OP
+    int size = SMPmatSize(ckt->CKTmatrix);
+    memcpy(ckt->CKTrhs, io->x, sizeof(double) * (size + 1));
+    SWAP(double *, ckt->CKTrhs, ckt->CKTrhsOld);
+
+    // load
+    ckt->CKTnoncon = 0;
+    CKTload(ckt);
+
+    // solve
+    if (is_1st_iter) {
+        SMPpreOrder(ckt->CKTmatrix);
+        SMPreorder(ckt->CKTmatrix, ckt->CKTpivotAbsTol, ckt->CKTpivotRelTol, ckt->CKTdiagGmin);
+        SMPsolve(ckt->CKTmatrix, ckt->CKTrhs, ckt->CKTrhsSpare);
+    } else {
+        SMPluFac(ckt->CKTmatrix, ckt->CKTpivotAbsTol, ckt->CKTdiagGmin);
+        SMPsolve(ckt->CKTmatrix, ckt->CKTrhs, ckt->CKTrhsSpare);
+    }
+
+    // check converge
+    if (ckt->CKTnoncon == 0) {
+        ckt->CKTnoncon = NIconvTest(ckt);
+    } else {
+        ckt->CKTnoncon = 1;
+    }
+
+    // output
+    double tmp = 0.;
+    for (int i = 0; i < size + 1; i ++) {
+        io->dx[i] = ckt->CKTrhs[i] - io->x[i];
+        tmp +=  io->dx[i] * io->dx[i];
+    }
+    io->dist = tmp;
+    io->is_conv = (ckt->CKTnoncon == 0)? TRUE : FALSE;
+
+    return 0;
+}
+
+int set_worker_io(worker_io* w, int N, double* x, double* dx, double ratio, int matrix_size)
+{
+    for (int i = 0; i < matrix_size + 1; i ++) {
+        x[i] += dx[i];
+        dx[i] = dx[i] * 2.0 * ratio / N;  // step size
+    }
+
+    for (int i = 0; i < N; i ++) {
+        for (int j = 0; j < matrix_size + 1; j ++) {
+            w[i].x[j] = x[j] + dx[j] * (i - N / 2);
+            SPICE_debug(("%d: x[%d]=%f\n", i, j, w[i].x[j]));
+        }
+    }
+
+    return 0;
+}
 
 #if (0)
 simple nonlinear circuit
@@ -353,8 +458,104 @@ op
        +----------------+
        0
 #endif
-
+/* near() only works for OP: Evolutionary Algorithm for Newton-Raphson iterations. */
 int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
+{
+    int error, i, j, k;
+
+    int iterno = 0;
+    double ratio = 1.;
+
+    SPICE_debug(("entering...ckt->CTKmode=0x%08x\n", (uint32_t)(ckt->CKTmode)));
+
+    /* allocate worker_io */
+    int size = SMPmatSize(ckt->CKTmatrix);
+    worker_io* w = allocate_worker_io(N + 1, size); // the 1st one is for tmp usage
+    assert(w);
+
+    /*
+     * it seems that the CKTmode & SMPxxx() calls change in the following way (at least for OP):
+     * 
+     * =========================================================================
+     *  iterations  |    CKTmode            | SMPxxx() calls
+     * =========================================================================
+     *  1st         | 0x210 (INITJCT)       | preorder + reorder + solve
+     * -------------+-----------------------+-----------------------------------
+     *  rest        | 0x410 (INITFIX)       |
+     * -------------+-----------------------| luFac + solve
+     *  last        | 0x110 (INITFLOAT)     | 
+     * =========================================================================
+     *
+     * NB: 
+     * - CKTmode affects how CKTload() works (fixme: how?)
+     * - SMPxxx() calls solve the matrix
+     */
+
+
+    /*
+     * the 1st iteration, use w[0]
+     */
+
+    for (i = 0; i < size + 1; ++ i) {
+        w[0].x[i] = 0.0;
+    }
+    ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITJCT;
+    worker_whip(ckt, w, TRUE);
+
+    SPICE_debug(("w[0].dist=%f, w[0].is_conv=%d\n", w[0].dist, w[0].is_conv));
+    for (i = 0; i < size + 1; ++ i) {
+        SPICE_debug(("w[0].dx[%d]=%f\n", i, w[0].dx[i]));
+    }
+
+    set_worker_io(w + 1, N, w[0].x, w[0].dx, ratio, size);
+
+
+    ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFIX;
+    //SWAP(double *, ckt->CKTrhs, ckt->CKTrhsOld);
+
+    for (k = 1; k < maxIter; k ++) {
+        
+        SPICE_debug(("######################>> iterno=%d: noncon=%d, CKTmode=0x%08x\n", k, ckt->CKTnoncon, (uint32_t)(ckt->CKTmode)));
+
+        for (i = 1; i < N + 1; i ++) {
+            worker_whip(ckt, w + i, FALSE);
+            SPICE_debug(("w[%d].dist=%f, w[%d].is_conv=%d\n", i, w[i].dist, i, w[i].is_conv));
+            for (j = 0; j < size + 1; ++ j) {
+                SPICE_debug(("w[%d].dx[%d]=%f\n", i, w[i].dx[j]));
+            }
+            if (w[i].is_conv) {
+                printf("w[%d] converged!!!!!!!!!!!!!! N=%d, iterno=%d\n", i, N, k+1);
+                return OK;
+            }
+        }
+
+        // find the minimum distance
+        int min_idx = 1;
+        double min = w[1].dist;
+        for (i = 2; i < N + 1; ++ i) {
+            if (w[i].dist < min) {
+                min = w[i].dist;
+                min_idx = i;
+            }
+        }
+
+        // copy to first slot
+        memcpy(w[0].x, w[min_idx].x, sizeof(double) * (size + 1));
+        memcpy(w[0].dx, w[min_idx].dx, sizeof(double) * (size + 1));
+        
+        set_worker_io(w + 1, N, w[0].x, w[0].dx, ratio, size);
+        
+    }
+
+    deallocate_worker_io(w, N + 1);
+    abort();
+    return(E_ITERLIM);
+
+}
+
+
+
+int fake_near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
 {
     double *OldCKTstate0 = NULL;
     int error, i, j, k;
@@ -372,14 +573,6 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
     for (i = 0; i < size + 1; ++ i) {
         SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
     }
-
-#if (0)
-    x0[1] = 9.39104;
-    x0[2] = 10.0;
-    x0[3] = 9.98497;
-    x0[4] = -9.39104E-4;
-    set_rhsOld(ckt, x0);
-#endif
 
     /*
      * it seems that the CKTmode & SMPxxx() calls change in the following way (at least for OP):
@@ -515,7 +708,4 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
     return(E_ITERLIM);
 
 }
-
-
-
 

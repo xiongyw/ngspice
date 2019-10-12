@@ -74,7 +74,7 @@ extern int rl_catch_signals;        /* missing from editline/readline.h */
 #endif
 
 bool g_debug = FALSE;  // control SPICE_debug() macro
-bool g_near = FALSE; // use Evolutionary Algorithm in Newton-Raphson in NIiter()
+bool g_near = TRUE; // use Evolutionary Algorithm in Newton-Raphson in NIiter()
 
 #if defined(HAVE_GNUREADLINE) || defined(HAVE_BSDEDITLINE)
 char history_file[512] = {'\0'};
