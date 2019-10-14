@@ -27,14 +27,22 @@ void com_debug(wordlist *wl)
 
 // toggle g_near flag
 
+extern int g_num_workers;
 extern bool g_near;
 void com_near(wordlist *wl)
 {
+    if (wl) {
+        if (wl->wl_word) {
+            g_num_workers = scannum(wl->wl_word);
+        } 
+    }
+
     g_near = !g_near;
+    
     if (g_near)
-        printf("EA is ON\n");
+        printf("EA is ON, N=%d\n", g_num_workers);
     else
-        printf("EA is OFF\n");
+        printf("EA is OFF, N=%d\n", g_num_workers);
 }
 
 

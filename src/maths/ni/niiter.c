@@ -20,9 +20,10 @@ Modified: 2001 AlansFixes
 #include "ngspice/sperror.h"
 
 extern bool g_near;
-#define NUM_WORKERS   10
-int fake_near(CKTcircuit *ckt, int maxIter, int N);
-int near(CKTcircuit *ckt, int maxIter, int N);
+extern int g_num_workers;
+
+int fake_near(CKTcircuit *ckt, int maxIter, int num_workers);
+int near(CKTcircuit *ckt, int maxIter, int num_workers);
 
 
 /* NIiter() - return value is non-zero for convergence failure */
@@ -48,8 +49,8 @@ int NIiter(CKTcircuit *ckt, int maxIter)
      * test EA for DCOP 
      */
     if (g_near && (ckt->CKTmode & MODEDCOP)) {
-//        return near(ckt, maxIter, NUM_WORKERS);
-        return fake_near(ckt, maxIter, NUM_WORKERS);
+        return near(ckt, maxIter, g_num_workers);
+        //return fake_near(ckt, maxIter, g_num_workers);
     }
 
 
@@ -333,6 +334,7 @@ typedef struct {
     double* dx;
     double dist;
     bool is_conv;
+    double* state0;
 }worker_io; // workers' input/output
 
 void deallocate_worker_io(worker_io* w, int N)
@@ -340,12 +342,13 @@ void deallocate_worker_io(worker_io* w, int N)
     for (int j = 0; j < N; j ++) {
         free(w[j].x);
         free(w[j].dx);
+        free(w[j].state0);
     }
     free(w);
 }
 
 
-worker_io* allocate_worker_io(int N, int matrix_size)
+worker_io* allocate_worker_io(int N, int matrix_size, int CKTnumStates)
 {
     int i;
     worker_io* w = (worker_io*)malloc(sizeof(worker_io) * N);
@@ -366,6 +369,10 @@ worker_io* allocate_worker_io(int N, int matrix_size)
         
         w[i].dist = 0;
         w[i].is_conv = FALSE;
+
+        
+        w[i].state0 = (double*)malloc(sizeof(double) * CKTnumStates);
+        
     }
     
     return w;
@@ -384,9 +391,22 @@ int worker_whip(CKTcircuit* ckt, worker_io* io, bool is_1st_iter)
     memcpy(ckt->CKTrhs, io->x, sizeof(double) * (size + 1));
     SWAP(double *, ckt->CKTrhs, ckt->CKTrhsOld);
 
+    // set state0
+    memcpy(ckt->CKTstate0, io->state0, (size_t) ckt->CKTnumStates * sizeof(double));
+
+    SPICE_debug(("before CKTload()\n"));
+    for (int i = 0; i < size + 1; ++ i) {
+        SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
+    }
+
     // load
     ckt->CKTnoncon = 0;
     CKTload(ckt);
+    
+    SPICE_debug(("after CKTload()\n"));
+    for (int i = 0; i < size + 1; ++ i) {
+        SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
+    }
 
     // solve
     if (is_1st_iter) {
@@ -398,6 +418,12 @@ int worker_whip(CKTcircuit* ckt, worker_io* io, bool is_1st_iter)
         SMPsolve(ckt->CKTmatrix, ckt->CKTrhs, ckt->CKTrhsSpare);
     }
 
+    SPICE_debug(("after solve:\n"));
+    for (int i = 0; i < size + 1; ++ i) {
+        SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
+    }
+
+
     // check converge
     if (ckt->CKTnoncon == 0) {
         ckt->CKTnoncon = NIconvTest(ckt);
@@ -405,7 +431,9 @@ int worker_whip(CKTcircuit* ckt, worker_io* io, bool is_1st_iter)
         ckt->CKTnoncon = 1;
     }
 
-    // output
+    /*
+     * output
+     */
     double tmp = 0.;
     for (int i = 0; i < size + 1; i ++) {
         io->dx[i] = ckt->CKTrhs[i] - io->x[i];
@@ -414,23 +442,47 @@ int worker_whip(CKTcircuit* ckt, worker_io* io, bool is_1st_iter)
     io->dist = tmp;
     io->is_conv = (ckt->CKTnoncon == 0)? TRUE : FALSE;
 
+    // store state0
+    memcpy(io->state0, ckt->CKTstate0, (size_t) ckt->CKTnumStates * sizeof(double));
+
     return 0;
 }
 
-int set_worker_io(worker_io* w, int N, double* x, double* dx, double ratio, int matrix_size)
+int set_worker_io(worker_io* w, int N, const double* x, const double* dx, double ratio, int matrix_size,
+                  const double* state0, int CKTnumStates)
 {
+    double *center = NULL;
+    double *step = NULL;
+    
+    center = (double*)malloc(sizeof(double) * (matrix_size + 1));
+    assert(center);
+    step = (double*)malloc(sizeof(double) * (matrix_size + 1));
+    assert(step);
+
     for (int i = 0; i < matrix_size + 1; i ++) {
-        x[i] += dx[i];
-        dx[i] = dx[i] * 2.0 * ratio / N;  // step size
+        center[i] = x[i] + dx[i];
+        step[i] = dx[i] * 2.0 * ratio / N;
     }
 
     for (int i = 0; i < N; i ++) {
+
+        // candidates
         for (int j = 0; j < matrix_size + 1; j ++) {
-            w[i].x[j] = x[j] + dx[j] * (i - N / 2);
-            SPICE_debug(("%d: x[%d]=%f\n", i, j, w[i].x[j]));
+            if (N == 1) { // for testing
+                w[i].x[j] = center[j];
+            } else {
+                w[i].x[j] = center[j] + step[j] * (i - N / 2);
+            }
+            //SPICE_debug(("%d: x[%d]=%f\n", i, j, w[i].x[j]));
         }
+
+        // state0
+        memcpy(w[i].state0, state0, sizeof(double) * CKTnumStates);
     }
 
+    free(center);
+    free(step);
+    
     return 0;
 }
 
@@ -465,12 +517,13 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
 
     int iterno = 0;
     double ratio = 1.;
+    int nconv = 0;  // number of converged workers
 
     SPICE_debug(("entering...ckt->CTKmode=0x%08x\n", (uint32_t)(ckt->CKTmode)));
 
-    /* allocate worker_io */
+    // allocate worker_io
     int size = SMPmatSize(ckt->CKTmatrix);
-    worker_io* w = allocate_worker_io(N + 1, size); // the 1st one is for tmp usage
+    worker_io* w = allocate_worker_io(N + 1, size, ckt->CKTnumStates); // slot 0 stores the best candidate
     assert(w);
 
     /*
@@ -493,39 +546,43 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
 
 
     /*
-     * the 1st iteration, use w[0]
+     * the 1st iteration, use w[0] as io
      */
-
     for (i = 0; i < size + 1; ++ i) {
         w[0].x[i] = 0.0;
     }
+    memcpy(w[0].state0, ckt->CKTstate0, sizeof(double)*ckt->CKTnumStates);
     ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITJCT;
     worker_whip(ckt, w, TRUE);
 
-    SPICE_debug(("w[0].dist=%f, w[0].is_conv=%d\n", w[0].dist, w[0].is_conv));
+    SPICE_debug(("w[0].dist=%.16f, w[0].is_conv=%d\n", w[0].dist, w[0].is_conv));
     for (i = 0; i < size + 1; ++ i) {
-        SPICE_debug(("w[0].dx[%d]=%f\n", i, w[0].dx[i]));
+        SPICE_debug(("w[0].dx[%d]=%.16f\n", i, w[0].dx[i]));
     }
 
-    set_worker_io(w + 1, N, w[0].x, w[0].dx, ratio, size);
-
-
     ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFIX;
-    //SWAP(double *, ckt->CKTrhs, ckt->CKTrhsOld);
 
+    /*
+     * the rest iteration
+     */
     for (k = 1; k < maxIter; k ++) {
         
         SPICE_debug(("######################>> iterno=%d: noncon=%d, CKTmode=0x%08x\n", k, ckt->CKTnoncon, (uint32_t)(ckt->CKTmode)));
 
+        set_worker_io(w + 1, N, w[0].x, w[0].dx, ratio, size, w[0].state0, ckt->CKTnumStates);
+
         for (i = 1; i < N + 1; i ++) {
+            
             worker_whip(ckt, w + i, FALSE);
-            SPICE_debug(("w[%d].dist=%f, w[%d].is_conv=%d\n", i, w[i].dist, i, w[i].is_conv));
+        
+            SPICE_debug(("w[%d].dist=%.16f, w[%d].is_conv=%d\n", i, w[i].dist, i, w[i].is_conv));
             for (j = 0; j < size + 1; ++ j) {
-                SPICE_debug(("w[%d].dx[%d]=%f\n", i, w[i].dx[j]));
+                SPICE_debug(("w[%d].dx[%d]=%10.9f\n", i, w[i].dx[j]));
             }
+            
             if (w[i].is_conv) {
-                printf("w[%d] converged!!!!!!!!!!!!!! N=%d, iterno=%d\n", i, N, k+1);
-                return OK;
+                printf("ckt->CKTmode=0x%08x: w[%3d] converged, dist=%.16f! N=%d, iterno=%d\n", ckt->CKTmode, i, w[i].dist, N, k+1);
+                nconv ++;
             }
         }
 
@@ -538,18 +595,57 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
                 min_idx = i;
             }
         }
+        SPICE_debug(("k=%d: min_idx=%d, min dist=%.16f\n", k, min_idx, w[min_idx].dist));
 
-        // copy to first slot
+        // copy the best candidate to the first slot
         memcpy(w[0].x, w[min_idx].x, sizeof(double) * (size + 1));
         memcpy(w[0].dx, w[min_idx].dx, sizeof(double) * (size + 1));
-        
-        set_worker_io(w + 1, N, w[0].x, w[0].dx, ratio, size);
+        w[0].dist = w[min_idx].dist;
+        w[0].is_conv = w[min_idx].is_conv;
+        memcpy(w[0].state0, w[min_idx].state0, sizeof(double) * ckt->CKTnumStates);
+
+
+        if (nconv != 0) {
+            if (ckt->CKTmode & MODEINITFIX) {
+                ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFLOAT;
+            } else if (ckt->CKTmode & MODEINITFLOAT) {
+                printf("MODEINITFLOAT: converged!!!!!!!!!!!!!! N=%d, iterno=%d\n", N, k+1);
+                break;
+            }
+        }
         
     }
 
+
+    if((ckt->CKTmode & MODEINITFLOAT) && nconv != 0) {
+        SPICE_debug(("final result: w[0].dist=%.16f, w[0].is_conv=%d\n", w[0].dist, w[0].is_conv));
+        for (i = 0; i < size + 1; ++ i) {
+            SPICE_debug(("w[0].dx[%d]=%.16f\n", i, w[0].dx[i]));
+        }
+
+        /* copy final result from w[0] to CKT */
+        for (i = 0; i < size + 1; i ++) {
+            ckt->CKTrhs[i] = w[0].x[i] + w[0].dx[1];
+            ckt->CKTrhsOld[i] = w[0].x[i];
+        }
+        memcpy(ckt->CKTstate0, w[0].state0, sizeof(double) * ckt->CKTnumStates);
+
+        ckt->CKTstat->STATnumIter += k;
+
+        deallocate_worker_io(w, N + 1);
+
+        return OK;
+    } else {
+
+        deallocate_worker_io(w, N + 1);
+        return(E_ITERLIM);
+    }
+
+
+
+    
     deallocate_worker_io(w, N + 1);
-    abort();
-    return(E_ITERLIM);
+    return OK;
 
 }
 
@@ -601,6 +697,11 @@ int fake_near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
         ckt->CKTrhs[i] = 0.0;
         ckt->CKTrhsOld[i] = 0.0;
         ckt->CKTrhsSpare[i] = 0.0;
+    }
+
+    SPICE_debug(("before CKTload(), CKTmode=0x%08x:\n", ckt->CKTmode));
+    for (i = 0; i < size + 1; ++ i) {
+        SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
     }
 
     // load
@@ -666,11 +767,15 @@ int fake_near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
         SPICE_debug(("######################>> iterno=%d: noncon=%d, CKTmode=0x%08x\n", k, ckt->CKTnoncon, (uint32_t)(ckt->CKTmode)));
 
         ckt->CKTnoncon = 0;
+
+        SPICE_debug(("%d: before CKTload(), CKTmode=0x%08x:\n", k, ckt->CKTmode));
+        for (i = 0; i < size + 1; ++ i) {
+            SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
+        }
         
         CKTload(ckt);
     
         SPICE_debug(("%d: after CKTload(), CKTmode=0x%08x:\n", k, ckt->CKTmode));
-        
         for (i = 0; i < size + 1; ++ i) {
             SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
         }
@@ -678,7 +783,7 @@ int fake_near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
         SMPluFac(ckt->CKTmatrix, ckt->CKTpivotAbsTol, ckt->CKTdiagGmin);
         SMPsolve(ckt->CKTmatrix, ckt->CKTrhs, ckt->CKTrhsSpare);
         
-        SPICE_debug(("%d: noncon=%d\n", k, ckt->CKTnoncon));
+        SPICE_debug(("%d: after solve, noncon=%d\n", k, ckt->CKTnoncon));
         for (i = 0; i < size + 1; ++ i) {
             SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
         }
