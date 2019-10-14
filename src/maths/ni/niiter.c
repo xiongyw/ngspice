@@ -19,11 +19,85 @@ Modified: 2001 AlansFixes
 #include "ngspice/smpdefs.h"
 #include "ngspice/sperror.h"
 
+#include <assert.h>
+
 extern bool g_near;
 extern int g_num_workers;
+extern double g_ratio;
 
 int fake_near(CKTcircuit *ckt, int maxIter, int num_workers);
 int near(CKTcircuit *ckt, int maxIter, int num_workers);
+
+
+
+/* record iteration history */
+#define KEEP_HISTORY   1
+
+#if (KEEP_HISTORY)
+#define NUM_HIST       100
+double *s_hist[NUM_HIST];
+
+int s_allocate_hist(CKTcircuit* ckt)
+{
+    int size = SMPmatSize(ckt->CKTmatrix);
+    for (int i = 0; i < NUM_HIST; i ++) {
+        s_hist[i] = (double*)malloc((size + 1) * sizeof(double));
+        assert(s_hist[i]);
+        memset(s_hist[i], 0, (size + 1) * sizeof(double));
+    }
+
+    return 0;
+}
+
+int s_reset_hist(CKTcircuit* ckt)
+{
+    int size = SMPmatSize(ckt->CKTmatrix);
+    for (int i = 0; i < NUM_HIST; i ++) {
+        memset(s_hist[i], 0, (size + 1) * sizeof(double));
+    }
+    return 0;
+}
+
+void s_deallocate_hist(void) 
+{
+    for (int i = 0; i < NUM_HIST; i ++) {
+        if (s_hist[i]) free(s_hist[i]);
+    }
+}
+
+// print in csv format for R
+void s_print_hist(CKTcircuit* ckt, int iterno)
+{
+    int size = SMPmatSize(ckt->CKTmatrix);
+    char suffix[100];
+
+    if(g_near) {
+        snprintf(suffix, 100, "_N%dr%.3f", g_num_workers, g_ratio);
+    } else {
+       suffix[0]='\0';
+    }
+    
+    // csv header
+    printf("hist_csv%s = \"\n\t", suffix);
+    for (int i = 0; i < size + 1; i ++)
+        printf("x%d, ", i);
+    printf("\n");
+
+    for (int i = 0; i < iterno; i ++) {
+        printf("\t");
+        for (int j = 0; j < size + 1; j ++)
+            printf("%.16f, ", s_hist[i][j]);
+        printf("\n");
+    }
+    printf("\"\n");
+
+    
+    printf("hist_df%s = read.csv(text=hist_csv%s, header=TRUE)\n", suffix, suffix);
+    
+    printf("s <- seq(nrow(hist_df%s) - 1)\n", suffix);
+    printf("arrows(hist_df%s$x1[s], hist_df%s$x3[s], hist_df%s$x1[s+1], hist_df%s$x3[s+1])\n", suffix, suffix, suffix, suffix);
+}
+#endif
 
 
 /* NIiter() - return value is non-zero for convergence failure */
@@ -42,8 +116,9 @@ int NIiter(CKTcircuit *ckt, int maxIter)
     if (maxIter < 100)
         maxIter = 100;
 
-
-    
+#if KEEP_HISTORY
+    s_allocate_hist(ckt);
+#endif
 
     /*
      * test EA for DCOP 
@@ -177,6 +252,11 @@ int NIiter(CKTcircuit *ckt, int maxIter)
             SMPsolve(ckt->CKTmatrix, ckt->CKTrhs, ckt->CKTrhsSpare);
             ckt->CKTstat->STATsolveTime += SPfrontEnd->IFseconds() - startTime;
 
+#if (KEEP_HISTORY)
+            if (iterno < NUM_HIST)
+                memcpy(s_hist[iterno], ckt->CKTrhs, sizeof(double) * (SMPmatSize(ckt->CKTmatrix) + 1));
+#endif
+
             SPICE_debug(("%d: after SMPsolve(), CKTmode=0x%08x, CKTnoncon=%d:\n", iterno, ckt->CKTmode, ckt->CKTnoncon));
             for (i = 0; i < SMPmatSize(ckt->CKTmatrix) + 1; ++ i) {
                 SPICE_debug(("rhs, rhsOld, spare[%d]=%f, %f, %f\n", i, ckt->CKTrhs[i], ckt->CKTrhsOld[i], ckt->CKTrhsSpare[i]));
@@ -268,7 +348,9 @@ int NIiter(CKTcircuit *ckt, int maxIter)
                 FREE(OldCKTstate0);
 
                 printf("converged! iterno=%d\n", iterno);
-
+#if (KEEP_HISTORY)
+                s_print_hist(ckt, iterno + 1);
+#endif
                 return(OK);
             }
 
@@ -319,7 +401,6 @@ int NIiter(CKTcircuit *ckt, int maxIter)
 
 
 
-#include <assert.h>
 
 
 /* rhsOld is used as the current OP */
@@ -516,7 +597,7 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
     int error, i, j, k;
 
     int iterno = 0;
-    double ratio = 1.;
+    double ratio = g_ratio;
     int nconv = 0;  // number of converged workers
 
     SPICE_debug(("entering...ckt->CTKmode=0x%08x\n", (uint32_t)(ckt->CKTmode)));
@@ -554,6 +635,12 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
     memcpy(w[0].state0, ckt->CKTstate0, sizeof(double)*ckt->CKTnumStates);
     ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITJCT;
     worker_whip(ckt, w, TRUE);
+    iterno ++;
+
+#if KEEP_HISTORY
+    for (i = 0; i < size + 1; i ++)
+        s_hist[iterno][i] = w[0].x[i] + w[0].dx[i];
+#endif
 
     SPICE_debug(("w[0].dist=%.16f, w[0].is_conv=%d\n", w[0].dist, w[0].is_conv));
     for (i = 0; i < size + 1; ++ i) {
@@ -565,7 +652,7 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
     /*
      * the rest iteration
      */
-    for (k = 1; k < maxIter; k ++) {
+    for (k = iterno; k < maxIter; k ++) {
         
         SPICE_debug(("######################>> iterno=%d: noncon=%d, CKTmode=0x%08x\n", k, ckt->CKTnoncon, (uint32_t)(ckt->CKTmode)));
 
@@ -581,10 +668,12 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
             }
             
             if (w[i].is_conv) {
-                printf("ckt->CKTmode=0x%08x: w[%3d] converged, dist=%.16f! N=%d, iterno=%d\n", ckt->CKTmode, i, w[i].dist, N, k+1);
+                printf("ckt->CKTmode=0x%08x: w[%3d] converged, dist=%.16f! N=%d, iterno=%d\n", ckt->CKTmode, i, w[i].dist, N, iterno);
                 nconv ++;
             }
         }
+
+        iterno ++;
 
         // find the minimum distance
         int min_idx = 1;
@@ -604,12 +693,19 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
         w[0].is_conv = w[min_idx].is_conv;
         memcpy(w[0].state0, w[min_idx].state0, sizeof(double) * ckt->CKTnumStates);
 
+#if (KEEP_HISTORY)
+        if (iterno < NUM_HIST) {
+            for (i = 0; i < size + 1; i ++)
+                s_hist[iterno][i] = w[0].x[i] + w[0].dx[i];
+        }
+#endif
+
 
         if (nconv != 0) {
             if (ckt->CKTmode & MODEINITFIX) {
                 ckt->CKTmode = (ckt->CKTmode & ~INITF) | MODEINITFLOAT;
             } else if (ckt->CKTmode & MODEINITFLOAT) {
-                printf("MODEINITFLOAT: converged!!!!!!!!!!!!!! N=%d, iterno=%d\n", N, k+1);
+                printf("MODEINITFLOAT: converged!!!!!!!!!!!!!! N=%d, iterno=%d\n", N, iterno);
                 break;
             }
         }
@@ -633,6 +729,10 @@ int near(CKTcircuit *ckt, int maxIter, int N /* number of workers*/)
         ckt->CKTstat->STATnumIter += k;
 
         deallocate_worker_io(w, N + 1);
+
+#if (KEEP_HISTORY)
+        s_print_hist(ckt, iterno + 1);
+#endif
 
         return OK;
     } else {

@@ -467,7 +467,7 @@ struct comm spcp_coms[] = {
       
     // added(bruin, 2019.10.12)
     { "near", com_near, TRUE, TRUE,
-      { 010, 010, 010, 010 }, E_DEFHMASK, 0, 1,
+      { 010, 010, 010, 010 }, E_DEFHMASK, 0, 2, // arguments: N, ratio
       NULL,
       "toggle evolutionary algorithm in Newton-Raphson iterations." },
 

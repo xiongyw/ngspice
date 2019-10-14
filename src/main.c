@@ -73,9 +73,10 @@ extern int rl_catch_signals;        /* missing from editline/readline.h */
 # include "maths/misc/accuracy.h"
 #endif
 
-bool g_debug = FALSE;  // control SPICE_debug() macro
-bool g_near = TRUE;    // use Evolutionary Algorithm in Newton-Raphson in NIiter()
-int g_num_workers = 1; // number of workers
+bool g_debug = FALSE;   // control SPICE_debug() macro
+bool g_near = FALSE;    // use Evolutionary Algorithm in Newton-Raphson in NIiter()
+int g_num_workers = 10; // number of workers
+double g_ratio = 1.0;   // neighborhood radius / delta_x
 
 #if defined(HAVE_GNUREADLINE) || defined(HAVE_BSDEDITLINE)
 char history_file[512] = {'\0'};
