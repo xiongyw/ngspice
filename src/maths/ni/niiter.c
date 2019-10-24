@@ -529,41 +529,132 @@ int worker_whip(CKTcircuit* ckt, worker_io* io, bool is_1st_iter)
     return 0;
 }
 
-int set_worker_io(worker_io* w, int N, const double* x, const double* dx, double ratio, int matrix_size,
-                  const double* state0, int CKTnumStates)
+
+// http://c-faq.com/lib/gaussian.html
+double gaussrand(double mean, double sigma)
 {
+	static double V1, V2, S;
+	static int phase = 0;
+	double X;
+
+	if(phase == 0) {
+		do {
+			double U1 = (double)rand() / RAND_MAX;
+			double U2 = (double)rand() / RAND_MAX;
+
+			V1 = 2 * U1 - 1;
+			V2 = 2 * U2 - 1;
+			S = V1 * V1 + V2 * V2;
+			} while(S >= 1 || S == 0);
+
+		X = V1 * sqrt(-2 * log(S) / S);
+	} else
+		X = V2 * sqrt(-2 * log(S) / S);
+
+	phase = 1 - phase;
+
+	return X * sigma + mean;
+}
+
+/*
+ * INPUT:
+ *   dim: the dimension of x and dx
+ *     x: the previous fittest point
+ *    dx: the exploit result of the previous fittest point is "x+dx"
+ * ratio: ratio (to dx) of the radius of the neighborhood of "x+dx" to explore
+ *     N: number of candidates to explore in the neighborhood
+ *   how: how to distribute the candidates in the neighborhood: EVEN/AP/GP
+ *        
+ *
+ * OUTPUT:
+ * candid[N]: N candidate points to expore in the next iteration
+ */
+#define MUTATION_EVEN    0  // the candidate points are evenly distributed along the radius of the neighborhood
+#define MUTATION_AP      1  // arithmetic progression distribution (denser close to the center)
+#define MUTATION_GP      2  // geometric progression distribution (denser close to the center)
+int mutation(const int dim, const double* x, const double* dx, const double ratio, const int N, double* candid[N], int how)
+{
+    assert (how == MUTATION_EVEN || how == MUTATION_AP || how == MUTATION_GP);
+    
     double *center = NULL;
     double *step = NULL;
-    
-    center = (double*)malloc(sizeof(double) * (matrix_size + 1));
+   
+    center = (double*)malloc(sizeof(double) * dim);
     assert(center);
-    step = (double*)malloc(sizeof(double) * (matrix_size + 1));
+    step = (double*)malloc(sizeof(double) * dim);
     assert(step);
 
-    for (int i = 0; i < matrix_size + 1; i ++) {
-        center[i] = x[i] + dx[i];
-        step[i] = dx[i] * 2.0 * ratio / N;
-    }
-
-    for (int i = 0; i < N; i ++) {
-
-        // candidates
-        for (int j = 0; j < matrix_size + 1; j ++) {
-            if (N == 1) { // for testing
-                w[i].x[j] = center[j];
-            } else {
-                w[i].x[j] = center[j] + step[j] * (i - N / 2);
-            }
-            //SPICE_debug(("%d: x[%d]=%f\n", i, j, w[i].x[j]));
+    if (how == MUTATION_EVEN) {
+        double coeff = 2.0 * ratio / N;
+        
+        for (int i = 0; i < dim; i ++) {
+            center[i] = x[i] + dx[i];
+            step[i] = dx[i] * coeff;
         }
 
-        // state0
-        memcpy(w[i].state0, state0, sizeof(double) * CKTnumStates);
+        for (int i = 0; i < N; i ++) {
+            for (int j = 0; j < dim; j ++) {
+                candid[i][j] = center[j] + step[j] * (i - N / 2); // * gaussrand(0., 10.0);
+            }
+        }
+    } else if (how == MUTATION_AP) {
+    
+        /* take the minimum step size as an unit, the radius of the neighborhood covers how many units? */
+        int units = (N / 2) * (N / 2 + 1) / 2;
+        double coeff = ratio / units;
+
+        SPICE_debug(("units=%d, coeff=%.16f\n", units, coeff));
+        
+        for (int i = 0; i < dim; i ++) {
+            center[i] = x[i] + dx[i];
+            step[i] = dx[i] * coeff;
+
+            candid[0][i] = center[i]; // the 1st candidatate is just the center
+        }
+
+        // there are (N-1) candidates to be determined
+        for (int i = 0; i < N / 2; i ++) {
+            units = (i + 1) * (i + 2) / 2;
+            for (int j = 0; j < dim; j ++) {
+                int idx1 = 2 * i + 1;
+                int idx2 = 2 * i + 2;
+                candid[idx1][j] = center[j] + step[j] * units;
+                if (idx2 >= N) {
+                    break;
+                } else {
+                    candid[idx2][j] = center[j] - step[j] * units;
+                }
+            }
+        }
+        
+    }else if (how == MUTATION_GP) {
+        printf("not implemented!\n");
+        abort();
     }
 
     free(center);
     free(step);
     
+    return 0;
+}
+
+
+int set_worker_io(worker_io* w, int N, const double* x, const double* dx, double ratio, int matrix_size,
+                  const double* state0, int CKTnumStates)
+{
+    // mutation
+    double** candid = (double**)malloc(sizeof(double*) * N);
+    assert(candid);
+    for (int i = 0; i < N; i ++) {
+        candid[i] = w[i].x;
+    }
+    mutation(matrix_size + 1, x, dx, ratio, N, candid, MUTATION_EVEN);
+    free(candid);
+    
+    // state0
+    for (int i = 0; i < N; i ++)
+        memcpy(w[i].state0, state0, sizeof(double) * CKTnumStates);
+
     return 0;
 }
 
