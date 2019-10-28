@@ -12,6 +12,13 @@ cd build
 ../configure --with-readline=yes --enable-stepdebug
 make -j
 
+
+./build/src/ngspice diode.cir
+
+- `-> debug` command to toggle debug print
+- `-> near N r` to toggle EA algorithm and setting parameters (N: number of
+        candidates, r: ratio for neighborhood)
+
 # cuda branch
 
 git branch a
