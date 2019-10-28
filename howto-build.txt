@@ -1,0 +1,18 @@
+# download
+
+git clone https://github.com/xiongyw/ngspice.git
+cd ngspice
+./autogen.sh
+
+
+# master branch
+
+mkdir build
+cd build
+../configure --with-readline=yes --enable-stepdebug
+make -j
+
+# cuda branch
+
+git branch a
+git checkout CUSPICE+6-untested-b+
